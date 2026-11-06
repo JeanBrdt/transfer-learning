@@ -8,18 +8,65 @@ Formats :
     y : tableau int64 (n,), valeurs 0, ..., K-1 ;
     P : probabilités (n, K), toujours K colonnes, chaque ligne somme à 1.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 
 CONTRACT_VERSION = "1.0"
 N_TREES = 50
+METRICS = ("error", "ber")
 
 
 def make_forest(seed: int, n_trees: int = N_TREES) -> RandomForestClassifier:
     """La forêt aléatoire commune à toutes les méthodes (n_jobs=1 : le moteur parallélise)."""
     return RandomForestClassifier(n_estimators=n_trees, random_state=seed, n_jobs=1)
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """Les données d'un scénario : la source et la cible entière.
+
+    La cible n'est pas découpée : mettre le test de côté est le travail du protocole.
+    """
+    name: str                               # identifiant unique, par exemple "S1"
+    family: str
+    Xs: np.ndarray                          # source, entièrement étiquetée
+    ys: np.ndarray
+    Xt: np.ndarray                          # cible complète
+    yt: np.ndarray
+    class_names: tuple[str, ...]            # class_names[k] = nom de la classe k
+    feature_names: tuple[str, ...]
+    metric: str                             # note principale, l'une de METRICS
+    critical_class: int | None = None       # classe à surveiller ; None = la pire classe
+    test_frac: float = 0.5                  # part de la cible gardée pour le test
+    groups_t: np.ndarray | None = None      # groupes dans la cible (C-MAPSS, HHAR)
+    params: dict = field(default_factory=dict)
+
+    @property
+    def K(self) -> int:
+        return len(self.class_names)
+
+    @property
+    def n_S(self) -> int:
+        return len(self.ys)
+
+    @property
+    def d(self) -> int:
+        return self.Xs.shape[1]
+
+
+def check_scenario(scn: Scenario) -> None:
+    """Vérifie les formats d'un scénario ; s'arrête au premier écart."""
+    if scn.metric not in METRICS:
+        raise ValueError(f"{scn.name} : metric doit être l'une de {METRICS}")
+    if len(scn.feature_names) != scn.d:
+        raise ValueError(f"{scn.name} : {len(scn.feature_names)} noms pour {scn.d} variables")
+    for part, X, y in (("source", scn.Xs, scn.ys), ("cible", scn.Xt, scn.yt)):
+        if X.dtype != np.float64 or X.shape != (len(y), scn.d) or np.isnan(X).any():
+            raise ValueError(f"{scn.name}, {part} : X doit être float64 ({len(y)}, {scn.d}), sans NaN")
+        if y.dtype != np.int64 or not np.array_equal(np.unique(y), np.arange(scn.K)):
+            raise ValueError(f"{scn.name}, {part} : y doit être int64 et contenir chaque classe 0..{scn.K - 1}")
 
 
 @dataclass(frozen=True)
