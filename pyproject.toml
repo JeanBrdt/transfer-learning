@@ -14,5 +14,8 @@ dependencies = [
     "scikit-learn",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [tool.setuptools.packages.find]
 include = ["transfer_forest*"]
