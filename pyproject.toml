@@ -7,7 +7,7 @@ name = "transfer_forest"
 version = "0.1.0"
 description = "Pipeline d'expériences de transfert pour forêts aléatoires"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "pandas",
@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+notebooks = ["matplotlib", "jupyter"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
