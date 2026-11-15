@@ -3,10 +3,13 @@
     SER      étendre puis élaguer : on greffe un arbre cible sur les feuilles impures,
              puis on élague de bas en haut
     STRUT    garder la structure, déplacer les seuils (maximise le gain de divergence)
-    SER*     SER, mais un nœud n'est jamais élagué si la classe rare existait dans la
-             source à ce nœud (Minvielle et al., 2019, algorithme 4)
+    SER*     SER, mais une feuille source de la classe rare qu'aucun exemple cible n'atteint
+             est conservée, et ses ancêtres ne sont pas élagués (Minvielle et al., 2019 ;
+             règle du code des auteurs, reprise par ADAPT)
     STRUT*   STRUT, avec les distributions source des fils corrigées par
              λ_k = P_T(k) / P_S(k) (Minvielle et al., 2019, algorithme 5)
+    MIX      moyenne des probabilités des forêts SER et STRUT (100 arbres)
+    Relab    contrôle : toutes les coupures source gardées, feuilles réestimées sur la cible
 
 Chaque méthode adapte une copie de chaque arbre de ctx.rf_src (jamais modifiée) avec
 les exemples cibles étiquetés (Xl, yl). Les observations source ne sont pas relues :
@@ -27,6 +30,8 @@ Choix d'implémentation que l'état de l'art laisse ouverts :
     - λ_k de STRUT* : proportions de ys et de yl (STRUT : λ_k = 1, donc STRUT* = STRUT
       quand les proportions coïncident).
 """
+import warnings
+
 import numpy as np
 from sklearn.tree import DecisionTreeClassifier, _tree
 
@@ -66,33 +71,57 @@ def _clone(tree, classes, K: int, i: int = 0) -> _Node:
 
 # ---------------------------------------------------------------- SER
 
-def _ser(node: _Node, X, y, idx, K: int, seed: int, protected: int | None) -> int:
+def _has_leaf_of(node: _Node, c: int) -> bool:
+    """Le sous-arbre contient-il une feuille dont la classe majoritaire source est c ?"""
+    if node.is_leaf:
+        return node.src.argmax() == c
+    return _has_leaf_of(node.left, c) or _has_leaf_of(node.right, c)
+
+
+def _ser(node: _Node, X, y, idx, K: int, seed: int, protected: int | None) -> tuple[int, bool]:
     """Adapte le sous-arbre de `node` avec les exemples cibles `idx`.
 
-    Renvoie le nombre d'erreurs du sous-arbre adapté sur ces exemples.
+    Renvoie le nombre d'erreurs du sous-arbre adapté sur ces exemples, et s'il
+    contient une feuille protégée par SER* (ce qui interdit d'élaguer ses ancêtres).
     """
     n = len(idx)
-    if n == 0:
-        return 0                                   # rien ne l'atteint : on garde la source
+    if n == 0:                                     # rien ne l'atteint : on garde la source
+        return 0, protected is not None and _has_leaf_of(node, protected)
     counts = np.bincount(y[idx], minlength=K)
     leaf_err = n - counts.max()                    # erreurs si le nœud devenait une feuille
     if node.is_leaf:
         if leaf_err > 0:                           # expansion : arbre complet sur les cibles
-            graft = DecisionTreeClassifier(random_state=seed).fit(X[idx], y[idx])
+            with warnings.catch_warnings():        # greffe sur quelques exemples : scikit-learn
+                warnings.simplefilter("ignore")    # croirait à tort à une régression
+                graft = DecisionTreeClassifier(random_state=seed).fit(X[idx], y[idx])
             sub = _clone(graft.tree_, graft.classes_.astype(int), K)
             node.feature, node.threshold = sub.feature, sub.threshold
             node.left, node.right, node.proba = sub.left, sub.right, sub.proba
         else:
             node.proba = counts / n                # feuille pure : réétiquetée si besoin
-        return 0
+        return 0, False
     go = X[idx, node.feature] <= node.threshold
-    err = (_ser(node.left, X, y, idx[go], K, seed, protected)
-           + _ser(node.right, X, y, idx[~go], K, seed, protected))
-    prunable = protected is None or node.src[protected] == 0   # SER* : protection
-    if leaf_err <= err and prunable:               # réduction (égalité comprise)
+    err_l, prot_l = _ser(node.left, X, y, idx[go], K, seed, protected)
+    err_r, prot_r = _ser(node.right, X, y, idx[~go], K, seed, protected)
+    err, prot = err_l + err_r, prot_l or prot_r
+    if leaf_err <= err and not prot:               # réduction (égalité comprise)
         node.make_leaf(counts / n)
-        return leaf_err
-    return err
+        return leaf_err, False
+    return err, prot
+
+
+# ---------------------------------------------------------------- Relab
+
+def _relab(node: _Node, X, y, idx, K: int) -> None:
+    """Garde toutes les coupures ; chaque feuille atteinte prend les proportions cibles."""
+    if len(idx) == 0:
+        return                                     # feuille non atteinte : distribution source
+    if node.is_leaf:
+        node.proba = np.bincount(y[idx], minlength=K) / len(idx)
+        return
+    go = X[idx, node.feature] <= node.threshold
+    _relab(node.left, X, y, idx[go], K)
+    _relab(node.right, X, y, idx[~go], K)
 
 
 # ---------------------------------------------------------------- STRUT
@@ -143,10 +172,8 @@ def _strut(node: _Node, X, y, idx, K: int, lam: np.ndarray, parent_proba: np.nda
     cR = counts - cL
     nL, nR = cL.sum(axis=1), cR.sum(axis=1)
     gain = _entropy(counts[None])[0] - nL / n * _entropy(cL) - nR / n * _entropy(cR)
-    peak = np.ones(len(gain), bool)                # maxima locaux du gain d'information
-    if len(gain) > 2:
-        peak[1:-1] = (gain[1:-1] >= gain[:-2]) & (gain[1:-1] >= gain[2:])
-    k = np.flatnonzero(peak)
+    g = np.r_[-np.inf, gain, -np.inf]              # maxima locaux du gain d'information ;
+    k = np.flatnonzero((g[1:-1] >= g[:-2]) & (g[1:-1] >= g[2:]))   # une extrémité doit battre sa voisine
     QL, QR = cL[k] / nL[k, None], cR[k] / nR[k, None]
     wL, wR = nL[k] / n, nR[k] / n
     PL, PR = _correct(node.left.src, lam), _correct(node.right.src, lam)
@@ -264,3 +291,23 @@ class STRUT(_Segev):
 class STRUTStar(STRUT):
     name = "STRUT*"
     correct_priors = True
+
+
+class Relab(_Segev):
+    name = "Relab"
+
+    def adapt(self, root, X, y, idx, ctx, seed):
+        _relab(root, X, y, idx, ctx.K)
+
+
+class MIX(Method):
+    """Union des forêts SER et STRUT : 2 x 50 arbres, probabilités moyennées."""
+    name = "MIX"
+    uses_budget = True
+
+    def fit(self, ctx: Context) -> "MIX":
+        self._forests = [SER().fit(ctx), STRUT().fit(ctx)]
+        return self
+
+    def predict_proba(self, X):
+        return np.mean([f.predict_proba(X) for f in self._forests], axis=0)
