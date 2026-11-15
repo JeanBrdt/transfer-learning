@@ -1,13 +1,13 @@
-"""Tests de base des méthodes de transfert (SER, STRUT, SER*, STRUT*) sur données synthétiques."""
+"""Tests de base des méthodes de Segev (SER, STRUT, SER*, STRUT*, MIX, Relab) sur données synthétiques."""
 import numpy as np
 import pytest
 
 from transfer_forest.contracts import Context, check_proba, make_forest
 from transfer_forest.methods import make_method
-from transfer_forest.methods.segev import _Node, _clone, _ser
+from transfer_forest.methods.segev import _Node, _clone, _ser, _strut
 
 K = 3
-NAMES = ["SER", "STRUT", "SER*", "STRUT*"]
+NAMES = ["SER", "STRUT", "SER*", "STRUT*", "MIX", "Relab"]
 
 
 def _data(n, shift, seed):
@@ -100,16 +100,38 @@ def test_ser_elagage_sur_egalite():
 
 
 def test_ser_etoile_protege_la_classe_rare():
-    """SER* ne doit pas élaguer un nœud où la classe protégée existait dans la source."""
+    """SER* garde une feuille source de la classe protégée qu'aucun exemple cible n'atteint."""
     def tree():
         root = _Node(np.array([.5, .5]), np.array([.5, .5]))
         root.feature, root.threshold = 0, np.float64(0.5)
         root.left = _Node(np.array([1., 0.]), np.array([1., 0.]))
         root.right = _Node(np.array([0., 1.]), np.array([0., 1.]))
         return root
-    X = np.array([[0.2], [0.8]], dtype=np.float32)
-    y = np.array([0, 0])
+    X = np.array([[0.2], [0.3]], dtype=np.float32)    # tous à gauche : la feuille de la classe 1
+    y = np.array([0, 0])                              # n'est atteinte par aucun exemple cible
     plain, protected = tree(), tree()
     _ser(plain, X, y, np.arange(2), 2, 0, None)
-    _ser(protected, X, y, np.arange(2), 2, 0, 1)      # classe 1 présente à la racine dans la source
+    _ser(protected, X, y, np.arange(2), 2, 0, 1)
     assert plain.is_leaf and not protected.is_leaf
+    assert protected.right.proba[1] == 1               # la feuille protégée garde la source
+
+    reached = tree()                                   # atteinte, la feuille n'est pas protégée
+    _ser(reached, np.array([[0.2], [0.8]], dtype=np.float32), y, np.arange(2), 2, 0, 1)
+    assert reached.is_leaf
+
+
+def test_strut_ne_retient_que_les_maxima_locaux():
+    """Une extrémité n'est candidate que si elle bat sa voisine.
+
+    Ici le gain de divergence préférerait une coupure extrême (1,5 ou 5,5), qui imite la
+    distribution source 50/50 sans rien séparer ; le seul maximum local du gain
+    d'information est 3,5, la coupure parfaite.
+    """
+    half = np.array([.5, .5])
+    root = _Node(half, half)
+    root.feature, root.threshold = 0, np.float64(10.0)
+    root.left, root.right = _Node(half, half), _Node(half, half)
+    X = np.arange(1, 7, dtype=np.float32)[:, None]
+    y = np.array([0, 0, 0, 1, 1, 1])
+    _strut(root, X, y, np.arange(6), 2, np.ones(2), root.src)
+    assert root.threshold == 3.5

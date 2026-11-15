@@ -4,9 +4,10 @@ Ajouter une méthode = l'ajouter à la liste ci-dessous.
 """
 from transfer_forest.contracts import Method
 from transfer_forest.methods.references import Oracle, Src, Tgt, Union, UnionP
-from transfer_forest.methods.segev import SER, STRUT, SERStar, STRUTStar
+from transfer_forest.methods.segev import MIX, SER, STRUT, Relab, SERStar, STRUTStar
 
-METHODS = {m.name: m for m in (Src, Tgt, Union, UnionP, Oracle, SER, STRUT, SERStar, STRUTStar)}
+METHODS = {m.name: m for m in (Src, Tgt, Union, UnionP, Oracle,
+                               Relab, SER, STRUT, MIX, SERStar, STRUTStar)}
 
 
 def make_method(name: str) -> Method:

@@ -21,7 +21,10 @@ G > 0 : la méthode fait mieux que la référence. Gains dans l'unité de la not
 
     from transfer_forest.scoring import compute_gains, summarize
     gains = compute_gains(results, metric=scn.metric)
-    summary = summarize(gains)   # par budget et méthode : gain moyen, IC 95 %, taux de victoire
+    summary = summarize(gains)   # par budget et méthode : gain moyen, IC 95 %, victoires, Wilcoxon
+
+Puis, pour un scénario, les deux indicateurs de synthèse du protocole :
+crossover_budget (budget de croisement) et annotation_saving (économie d'annotation).
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+from scipy.stats import wilcoxon
 
 REFS_PROTOCOL = ("Src", "Tgt", "Union")   # les trois références de G_ref (protocole)
 N_BOOT = 10_000
@@ -112,8 +116,10 @@ def summarize(gains: pd.DataFrame, budget_col: str = "n_T", n_boot: int = N_BOOT
               level: float = 0.95, seed: int = 0) -> pd.DataFrame:
     """Synthèse sur les graines, par budget et méthode (protocole, section 6).
 
-    Pour G_Tgt et G_ref : gain moyen, IC à 95 % (bootstrap des graines) et taux de
-    victoire, la part des graines où G > 0 (une égalité n'est pas une victoire).
+    Pour G_Tgt et G_ref : gain moyen, IC à 95 % (bootstrap des graines), taux de
+    victoire (part des graines où G > 0 ; une égalité n'est pas une victoire) et
+    p-valeur du test de Wilcoxon apparié, brute (``_p``) puis ajustée par Holm sur
+    les budgets d'une même méthode (``_p_holm``).
     Les graines aux gains NaN sont écartées ; ``n_seeds`` compte celles retenues.
     """
     rng = np.random.default_rng(seed)
@@ -129,5 +135,56 @@ def summarize(gains: pd.DataFrame, budget_col: str = "n_T", n_boot: int = N_BOOT
             row[f"{g}_mean"] = v.mean() if v.size else np.nan
             row[f"{g}_ci_low"], row[f"{g}_ci_high"] = bootstrap_ci(v, n_boot, level, rng)
             row[f"{g}_win_rate"] = np.mean(v > 0) if v.size else np.nan
+            row[f"{g}_p"] = wilcoxon_p(v)
         rows.append(row)
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    same_method = [c for c in by if c != budget_col]
+    for g in ("g_tgt", "g_ref"):
+        out[f"{g}_p_holm"] = out.groupby(same_method)[f"{g}_p"].transform(holm)
+    return out
+
+
+def wilcoxon_p(gains) -> float:
+    """p-valeur du test de Wilcoxon apparié, H0 : le gain est nul ; NaN si tous les gains sont nuls."""
+    v = np.asarray(gains, dtype=float)
+    return float(wilcoxon(v).pvalue) if np.any(v != 0) else np.nan
+
+
+def holm(p) -> np.ndarray:
+    """p-valeurs ajustées par la méthode de Holm : la i-ème plus petite est multipliée
+    par (m - i + 1), puis on impose qu'elles croissent. Les NaN sont ignorés."""
+    p = np.asarray(p, dtype=float)
+    order = np.argsort(p)                                    # NaN en dernier
+    m = np.count_nonzero(~np.isnan(p))
+    adjusted = np.empty_like(p)
+    adjusted[order] = np.minimum(1, np.maximum.accumulate((m - np.arange(len(p))) * p[order]))
+    return adjusted
+
+
+def crossover_budget(summary: pd.DataFrame, gain: str = "g_tgt", alpha: float = 0.05,
+                     budget_col: str = "n_T") -> pd.Series:
+    """Budget de croisement de chaque méthode, pour un scénario.
+
+    Le plus petit budget à partir duquel la méthode n'a plus de gain significatif
+    (p de Holm < alpha et gain moyen > 0) : au-delà, autant apprendre sur la cible
+    seule. NaN si le gain est encore significatif au plus grand budget.
+    """
+    out = {}
+    for method, s in summary.sort_values(budget_col).groupby("method"):
+        significant = ((s[f"{gain}_p_holm"] < alpha) & (s[f"{gain}_mean"] > 0)).to_numpy()
+        first = np.flatnonzero(significant)[-1] + 1 if significant.any() else 0
+        out[method] = s[budget_col].iloc[first] if first < len(s) else np.nan
+    return pd.Series(out, name=f"crossover_{budget_col}")
+
+
+def annotation_saving(summary: pd.DataFrame, budget_col: str = "n_T") -> pd.Series:
+    """Économie d'annotation E = ñ / n_T, pour un scénario.
+
+    ñ : nombre d'exemples dont Tgt aurait besoin pour atteindre la note moyenne de la
+    méthode, interpolé sur la courbe moyenne de Tgt (en log n_T). E = 4 : la méthode
+    fait avec n_T exemples ce que Tgt fait avec 4 n_T. NaN hors des budgets testés.
+    """
+    tgt = summary[summary.method == "Tgt"].sort_values(budget_col)
+    score, log_n = tgt["score_mean"].to_numpy()[::-1], np.log(tgt[budget_col].to_numpy())[::-1]
+    n_tilde = np.exp(np.interp(summary["score_mean"], score, log_n, left=np.nan, right=np.nan))
+    return pd.Series(n_tilde / summary[budget_col].to_numpy(), index=summary.index, name="saving")

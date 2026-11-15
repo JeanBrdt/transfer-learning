@@ -12,10 +12,13 @@ dependencies = [
     "numpy",
     "pandas",
     "scikit-learn",
+    "scipy",
+    "joblib",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]
-notebooks = ["matplotlib", "jupyter"]
+notebooks = ["jupyter"]
 dev = ["pytest"]
 
 [tool.setuptools.packages.find]
