@@ -15,7 +15,7 @@ L'option `-e` installe le package en mode éditable : les modifications du code 
 Python 3.10 ou plus est requis. Pour faire tourner les notebooks (graphiques, Jupyter) ou les tests, ajouter les options correspondantes :
 
 ```bash
-pip install -e ".[notebooks]"   # matplotlib et jupyter
+pip install -e ".[notebooks]"   # jupyter
 pip install -e ".[dev]"         # pytest
 ```
 
@@ -47,15 +47,45 @@ Sur Colab, redémarrer la session après l'installation (Exécution > Redémarre
 !pip install -e ".[notebooks]"
 ```
 
-## Utilisation
+## Lancer l'expérience
 
-```python
-from transfer_forest.contracts import Context, make_forest
-from transfer_forest.data import load_scenarios
-from transfer_forest.methods import METHODS, make_method
+Depuis la racine du dépôt :
+
+```bash
+python -m transfer_forest.run S1
 ```
 
-Les méthodes disponibles sont dans `METHODS` : les références sans transfert (`Src`, `Tgt`, `Union`, `Union-P`, `Oracle`) et les méthodes de transfert (`SER`, `STRUT`, `SER*`, `STRUT*`).
+Le moteur (`transfer_forest/run.py`) fait tout, de bout en bout : découpage test / réserve,
+mesure du décalage, puis, pour chacune des 20 graines (en parallèle), la forêt source et
+chaque méthode à chaque budget, notées sur le test ; enfin l'analyse et les figures.
+Sorties dans `results/` :
+
+| Fichier | Contenu |
+|---|---|
+| `S1.csv` | une ligne par (graine, budget, méthode) : notes, temps, version du code (940 lignes) |
+| `S1_summary.csv` | par (budget, méthode) : gains G_Tgt et G_ref, IC à 95 %, taux de victoire, Wilcoxon (p brute et Holm), économie d'annotation, budget de croisement |
+| `S1_shift.csv` | le décalage : AUC du classifieur de domaine (avec et sans la variable de coupe), écart des proportions, écart de domaine |
+| `S1_scores.png`, `S1_gains.png` | note selon le budget ; gains avec leurs IC |
+
+G_ref compare à la meilleure des références Src, Tgt, Union **et Union-P** : le protocole
+ne prévoyait pas Union-P, mais c'est la meilleure référence sur S1.
+
+## Le pipeline
+
+| Étape | Module | Ce qu'il fournit |
+|---|---|---|
+| contrat | `contracts.py` | formats communs : `Scenario`, `Context`, `Method`, `make_forest` |
+| scénarios | `data/` | `load_scenarios("S1")` |
+| décalage | `shift.py` | `characterize(scn, reserve)` |
+| tirages | `splits.py` | `split_target`, `draws` (voir plus bas) |
+| méthodes | `methods/` | `METHODS`, `make_method(name)` |
+| notation | `evaluation.py` | `evaluate(y_test, P)` : error, ber, f1_macro, fnr_critical, log_loss |
+| analyse | `scoring.py`, `plots.py` | gains, Wilcoxon-Holm, synthèse, figures |
+| moteur | `run.py` | l'expérience complète |
+
+Les méthodes disponibles sont dans `METHODS` : les références sans transfert (`Src`, `Tgt`,
+`Union`, `Union-P`, `Oracle`) et les méthodes de Segev et al. (`Relab`, `SER`, `STRUT`, `MIX`,
+`SER*`, `STRUT*`).
 
 Les notebooks d'expériences sont dans `notebooks/` :
 - `experience_references_s1.ipynb` : les références sans transfert sur S1 ;
@@ -67,7 +97,7 @@ Les notebooks d'expériences sont dans `notebooks/` :
 transfer-forest/
 ├── data/             # données des scénarios
 ├── notebooks/        # notebooks d'expériences
-├── results/          # résultats enregistrés par les notebooks (ignoré par git, créé au besoin)
+├── results/          # résultats du moteur et des notebooks (ignoré par git, créé au besoin)
 ├── tests/            # tests (pytest)
 ├── transfer_forest/  # le package
 └── pyproject.toml
