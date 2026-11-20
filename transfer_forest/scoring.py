@@ -188,3 +188,11 @@ def annotation_saving(summary: pd.DataFrame, budget_col: str = "n_T") -> pd.Seri
     score, log_n = tgt["score_mean"].to_numpy()[::-1], np.log(tgt[budget_col].to_numpy())[::-1]
     n_tilde = np.exp(np.interp(summary["score_mean"], score, log_n, left=np.nan, right=np.nan))
     return pd.Series(n_tilde / summary[budget_col].to_numpy(), index=summary.index, name="saving")
+
+
+def timing_table(results: pd.DataFrame) -> pd.DataFrame:
+    """Coût de chaque méthode : apprentissage, inférence, taille et rechargement (moyenne et écart-type sur les graines)."""
+    cols = ["t_fit", "t_predict", "t_predict_per_1000", "size_bytes", "t_load"]
+    table = results.groupby("method")[cols].agg(["mean", "std"])
+    table.columns = [f"{c}_{stat}" for c, stat in table.columns]
+    return table

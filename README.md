@@ -87,6 +87,8 @@ Les méthodes disponibles sont dans `METHODS` : les références sans transfert 
 `Union`, `Union-P`, `Oracle`) et les méthodes de Segev et al. (`Relab`, `SER`, `STRUT`, `MIX`,
 `SER*`, `STRUT*`).
 
+Scénarios disponibles : `S1` (Letter) et `S6` (HHAR).
+
 Les notebooks d'expériences sont dans `notebooks/` :
 - `experience_references_s1.ipynb` : les références sans transfert sur S1 ;
 - `experience_transfert_s1.ipynb` : toutes les méthodes de `METHODS` face aux références sur S1. Les résultats sont enregistrés dans `results/s1_transfert.csv` : en relançant, seules les combinaisons manquantes sont calculées.
@@ -101,6 +103,39 @@ transfer-forest/
 ├── tests/            # tests (pytest)
 ├── transfer_forest/  # le package
 └── pyproject.toml
+```
+
+## Scénario S6 : HHAR (`transfer_forest/data/s6_hhar.py`)
+
+Reconnaissance d'activité (6 classes : bike, sit, stairsdown, stairsup, stand, walk) à partir de
+l'accéléromètre et du gyroscope de téléphones et de montres (UCI n° 344, 9 utilisateurs). Les
+appareils ne se portent pas au même endroit et n'échantillonnent pas à la même fréquence
+(50 à 200 Hz) : le décalage entre domaines est réel (AUC du classifieur de domaine ≈ 1, la forêt
+source se trompe à 61 % sur la cible).
+
+```bash
+python -m transfer_forest.run S6
+```
+
+- **Fenêtres** : les mesures brutes sont résumées en fenêtres de 2 s sans recouvrement, par
+  appareil et par utilisateur. 32 variables = 2 capteurs × 4 signaux (x, y, z, norme) × 4 résumés
+  (moyenne, écart-type, min, max). On écarte les fenêtres sans activité (`null`), celles où l'activité
+  change (moins de 90 % d'une même étiquette) et celles de moins de 40 échantillons par capteur.
+  Les `samsungold` n'ont pas de gyroscope et sont écartés.
+- **Source et cible** : montres → téléphones (7 521 → 35 175 fenêtres). Le sens inverse est
+  impossible avec le protocole : le budget maximal (20 % de la source = 7 035) dépasserait la
+  réserve de la cible (3 760). `make_scenario(windows, source="phone", target="watch")` le permet
+  tout de même pour des essais hors protocole.
+- **`groups_t`** : l'utilisateur de chaque fenêtre de la cible. Le découpage de `splits.py` ne s'en
+  sert pas : des fenêtres voisines d'un même enregistrement peuvent tomber dans le test et dans la
+  réserve, ce qui favorise un peu les méthodes qui utilisent des exemples cibles.
+- **Données** : le résumé en fenêtres est dans `data/hhar/windows.csv.gz` (5 Mo, versionné), le
+  moteur n'a besoin de rien d'autre. Pour le reconstruire (autre taille de fenêtre, autres
+  variables), télécharger « Activity recognition exp.zip » sur
+  https://archive.ics.uci.edu/dataset/344, le décompresser dans `data/hhar/`, puis :
+
+```bash
+python -m transfer_forest.data.s6_hhar    # 3 Go à lire, quelques minutes
 ```
 
 ## Découpage des données (`transfer_forest/splits.py`)

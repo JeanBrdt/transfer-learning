@@ -14,6 +14,7 @@ Sorties dans results/ :
     <S>_shift.csv      le décalage du scénario
     <S>_scores.png, <S>_gains.png
 """
+import io
 import subprocess
 import sys
 import time
@@ -21,6 +22,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import joblib
 from joblib import Parallel, delayed
 
 from transfer_forest.contracts import Context, Scenario, make_forest
@@ -28,7 +30,8 @@ from transfer_forest.data import load_scenarios
 from transfer_forest.evaluation import evaluate
 from transfer_forest.methods import METHODS, make_method
 from transfer_forest.plots import plot_gains, plot_scores
-from transfer_forest.scoring import annotation_saving, compute_gains, crossover_budget, summarize
+from transfer_forest.scoring import (annotation_saving, compute_gains, crossover_budget, summarize,
+                                     timing_table)
 from transfer_forest.shift import characterize
 from transfer_forest.splits import draws, split_target
 
@@ -36,6 +39,17 @@ RESULTS = Path("results")
 # Le protocole définit G_ref avec min(Src, Tgt, Union). On y ajoute Union-P, la meilleure
 # référence sur S1 : un gain ne doit jamais être déclaré face à une simple repondération.
 G_REF = ("Src", "Tgt", "Union", "Union-P")
+
+
+def measure_storage(method) -> tuple[int, float]:
+    """Taille du modèle sauvegardé (octets) et temps pour le recharger (s)."""
+    buf = io.BytesIO()
+    joblib.dump(method, buf)
+    size = buf.getbuffer().nbytes
+    buf.seek(0)
+    t0 = time.perf_counter()
+    joblib.load(buf)
+    return size, time.perf_counter() - t0
 
 
 def run_seed(scn: Scenario, reserve, test, seed: int, draw: dict) -> tuple[list, list]:
@@ -60,12 +74,15 @@ def run_seed(scn: Scenario, reserve, test, seed: int, draw: dict) -> tuple[list,
             P = method.predict_proba(scn.Xt[test])
             t2 = time.perf_counter()
             notes = evaluate(scn.yt[test], P, scn.critical_class)
+            size_bytes, t_load = measure_storage(method)
         except Exception as e:
             failures.append(f"{scn.name}, graine {seed}, {name}, p = {p} : {e!r}")
             continue
         rows.append({"scenario": scn.name, "family": scn.family, "seed": seed, "p": p,
                      "n_T": len(ctx.yl) if p else None, "method": name, **notes,
-                     "t_fit": t1 - t0, "t_predict": t2 - t1})
+                     "t_fit": t1 - t0, "t_predict": t2 - t1,
+                     "t_predict_per_1000": (t2 - t1) / len(test) * 1000,
+                     "size_bytes": size_bytes, "t_load": t_load})
     return rows, failures
 
 
@@ -75,6 +92,7 @@ def analyze(scn: Scenario, results: pd.DataFrame) -> pd.DataFrame:
     summary["saving"] = annotation_saving(summary)
     summary["crossover_n_T"] = summary["method"].map(crossover_budget(summary))
     summary.to_csv(RESULTS / f"{scn.name}_summary.csv", index=False)
+    timing_table(results).to_csv(RESULTS / f"{scn.name}_timing.csv")
     plot_scores(results, scn.metric, RESULTS / f"{scn.name}_scores.png")
     plot_gains(summary, RESULTS / f"{scn.name}_gains.png")
     return summary
