@@ -11,7 +11,16 @@ from transfer_forest.splits import BUDGETS, SEEDS, budgets, draws, reserve_order
 def scn():
     """Faux scénario : source de 1000 exemples, cible de 600 sur K = 3 classes déséquilibrées."""
     yt = np.random.default_rng(0).choice(3, 600, p=[0.80, 0.15, 0.05])
-    return SimpleNamespace(name="test", yt=yt, test_frac=0.5, n_S=1000, K=3)
+    return SimpleNamespace(name="test", yt=yt, test_frac=0.5, n_S=1000, K=3, groups_t=None)
+
+
+def test_groupes_entiers_dans_le_test_ou_la_reserve(scn):
+    scn.groups_t = np.repeat(np.arange(60), 10)                    # 60 groupes de 10 exemples
+    reserve, test = split_target(scn)
+    assert not set(scn.groups_t[reserve]) & set(scn.groups_t[test])
+    assert len(reserve) + len(test) == len(scn.yt)
+    assert len(test) == 300                                        # la moitié des groupes
+    np.testing.assert_array_equal(split_target(scn)[1], test)      # toujours le même test
 
 
 def test_test_et_reserve(scn):
