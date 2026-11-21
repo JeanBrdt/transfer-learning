@@ -33,9 +33,6 @@ from transfer_forest.shift import characterize
 from transfer_forest.splits import draws, split_target
 
 RESULTS = Path("results")
-# Le protocole définit G_ref avec min(Src, Tgt, Union). On y ajoute Union-P, la meilleure
-# référence sur S1 : un gain ne doit jamais être déclaré face à une simple repondération.
-G_REF = ("Src", "Tgt", "Union", "Union-P")
 
 
 def run_seed(scn: Scenario, reserve, test, seed: int, draw: dict) -> tuple[list, list]:
@@ -71,7 +68,8 @@ def run_seed(scn: Scenario, reserve, test, seed: int, draw: dict) -> tuple[list,
 
 def analyze(scn: Scenario, results: pd.DataFrame) -> pd.DataFrame:
     """Gains, significativité, indicateurs de synthèse et figures d'un scénario."""
-    summary = summarize(compute_gains(results, metric=scn.metric, refs=G_REF))
+    # G_ref : min(Src, Tgt, Union), comme au protocole ; Union-P est jugée comme une méthode de transfert
+    summary = summarize(compute_gains(results, metric=scn.metric))
     summary["saving"] = annotation_saving(summary)
     summary["crossover_n_T"] = summary["method"].map(crossover_budget(summary))
     summary.to_csv(RESULTS / f"{scn.name}_summary.csv", index=False)
