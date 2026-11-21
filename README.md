@@ -52,7 +52,7 @@ Sur Colab, redémarrer la session après l'installation (Exécution > Redémarre
 Depuis la racine du dépôt :
 
 ```bash
-python -m transfer_forest.run S1
+python -m transfer_forest.run S1        # ou S5
 ```
 
 Le moteur (`transfer_forest/run.py`) fait tout, de bout en bout : découpage test / réserve,
@@ -67,8 +67,9 @@ Sorties dans `results/` :
 | `S1_shift.csv` | le décalage : AUC du classifieur de domaine (avec et sans la variable de coupe), écart des proportions, écart de domaine |
 | `S1_scores.png`, `S1_gains.png` | note selon le budget ; gains avec leurs IC |
 
-G_ref compare à la meilleure des références Src, Tgt, Union **et Union-P** : le protocole
-ne prévoyait pas Union-P, mais c'est la meilleure référence sur S1.
+G_ref compare à la meilleure des références Src, Tgt et Union, comme le prévoit le
+protocole. Union-P (source + cible surpondérée) est jugée comme une méthode de transfert,
+ce qu'elle est : elle a ses propres gains G_Tgt et G_ref.
 
 ## Le pipeline
 
@@ -84,10 +85,11 @@ ne prévoyait pas Union-P, mais c'est la meilleure référence sur S1.
 | moteur | `run.py` | l'expérience complète |
 
 Les méthodes disponibles sont dans `METHODS` : les références sans transfert (`Src`, `Tgt`,
-`Union`, `Union-P`, `Oracle`) et les méthodes de Segev et al. (`Relab`, `SER`, `STRUT`, `MIX`,
-`SER*`, `STRUT*`).
+`Union`, `Oracle`), le transfert par repondération `Union-P` et les méthodes de Segev et al.
+(`Relab`, `SER`, `STRUT`, `MIX`, `SER*`, `STRUT*`).
 
 Les notebooks d'expériences sont dans `notebooks/` :
+- `experience_s5.ipynb` : le scénario S5 (C-MAPSS) et l'interprétation de ses résultats ;
 - `experience_references_s1.ipynb` : les références sans transfert sur S1 ;
 - `experience_transfert_s1.ipynb` : toutes les méthodes de `METHODS` face aux références sur S1. Les résultats sont enregistrés dans `results/s1_transfert.csv` : en relançant, seules les combinaisons manquantes sont calculées.
 
@@ -103,6 +105,22 @@ transfer-forest/
 └── pyproject.toml
 ```
 
+## Scénario S5 : C-MAPSS (`transfer_forest/data/s5_cmapss.py`)
+
+Turboréacteurs simulés par la NASA, suivis cycle après cycle jusqu'à la panne. Un exemple est un
+cycle d'un moteur : 3 réglages de vol et 21 capteurs. Tâche : prédire une **panne dans les
+30 cycles** (classe `panne`, 15 % des cycles), notée en BER ; `fnr_critical` est la part des
+pannes ratées.
+
+- **Source** : FD001, 100 moteurs, un seul régime de vol (20 631 cycles).
+- **Cible** : FD002, 260 moteurs, six régimes de vol (53 759 cycles). Même panne (usure du
+  compresseur haute pression) ; ce sont les conditions de vol qui changent les mesures. Un seul
+  des six régimes, 15 % des cycles, est celui de la source.
+- **`groups_t`** : le moteur de chaque cycle cible. Le découpage met chaque moteur entier dans
+  le test ou dans la réserve (130 moteurs chacun).
+- **Données** : `data/cmapss/train_FD001.txt.gz` et `train_FD002.txt.gz`, tirés de l'archive
+  CMAPSSData du NASA Prognostics Data Repository (« Turbofan Engine Degradation Simulation »).
+
 ## Découpage des données (`transfer_forest/splits.py`)
 
 Implémente la partie 2 du protocole :
@@ -116,7 +134,8 @@ cible ──┬── test    (scn.test_frac = 50 %, stratifié, toujours le mê
 ```
 
 - **Test** : tiré une fois pour toutes (graine fixe `TEST_SEED`), stratifié sur les
-  classes ; il ne sert qu'à l'évaluation.
+  classes ; il ne sert qu'à l'évaluation. Si le scénario déclare des groupes (`groups_t` :
+  un moteur, un utilisateur…), chaque groupe va entier dans le test ou dans la réserve.
 - **Budgets** : nombre d'exemples **cibles** annotés n_T = round(p · n_S), pour
   p ∈ `BUDGETS` = {1, 2, 5, 10, 20} % (fraction de la taille de la source, comme
   Segev et al.), et au moins K pour avoir chaque classe. Sur S1 : 108, 216, 541,
