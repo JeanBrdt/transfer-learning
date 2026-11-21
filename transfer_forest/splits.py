@@ -8,7 +8,7 @@
 Tout est en indices dans scn.Xt / scn.yt. Le test ne sert qu'à l'évaluation.
 """
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
 from transfer_forest.contracts import Scenario
 
@@ -18,13 +18,19 @@ BUDGETS = (0.01, 0.02, 0.05, 0.10, 0.20)   # n_T = p * n_S
 
 
 def split_target(scn: Scenario) -> tuple[np.ndarray, np.ndarray]:
-    """Coupe la cible en (réserve, test), stratifié sur les classes.
+    """Coupe la cible en (réserve, test).
 
     Toujours le même découpage pour un scénario donné : le test ne dépend ni
-    de la graine ni du budget.
+    de la graine ni du budget. Sans groupes, le tirage est stratifié sur les classes.
+    Avec des groupes (scn.groups_t : un moteur, un utilisateur...), chaque groupe va
+    entier dans le test ou dans la réserve : sinon une méthode serait notée sur des
+    exemples presque identiques à ceux qu'elle a appris.
     """
-    return train_test_split(np.arange(len(scn.yt)), test_size=scn.test_frac,
-                            stratify=scn.yt, random_state=TEST_SEED)
+    idx = np.arange(len(scn.yt))
+    if scn.groups_t is None:
+        return train_test_split(idx, test_size=scn.test_frac, stratify=scn.yt, random_state=TEST_SEED)
+    split = GroupShuffleSplit(n_splits=1, test_size=scn.test_frac, random_state=TEST_SEED)
+    return next(split.split(idx, groups=scn.groups_t))
 
 
 def reserve_order(y_reserve, seed):
