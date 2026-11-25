@@ -1,18 +1,24 @@
 # transfer-forest
 
-Pipeline d'expériences autour du transfert pour les forêts aléatoires. Le package `transfer_forest` contient les scénarios de données, les méthodes comparées et les contrats communs (contexte, construction des forêts).
+Pipeline d'expériences sur le **transfert de modèle pour les forêts aléatoires** : on apprend une forêt sur un domaine source, puis on la corrige avec un petit nombre d'exemples annotés du domaine cible, et on compare ces méthodes à des références sans transfert sur trois jeux de données réels.
+
+Le package `transfer_forest` contient les scénarios de données, les méthodes comparées (dont celles de Segev et al., 2017), le protocole de découpage et d'évaluation, et le moteur qui enchaîne tout, du décalage entre domaines jusqu'aux figures.
+
+| Scénario | Données | Source → cible | Tâche |
+|---|---|---|---|
+| `S1` | Letter Recognition (UCI n° 59) | lettres étroites → lettres étalées (coupe sur `x2bar`) | reconnaissance de 26 lettres |
+| `S5` | C-MAPSS (NASA) | FD001 → FD002 | panne d'un turboréacteur dans les 30 cycles |
+| `S6` | HHAR (UCI n° 344) | montres → téléphones | reconnaissance d'activité (6 classes) |
 
 ## Installation
 
 ```bash
-git clone https://gitlab.imt-atlantique.fr/c25trand/transfer-forest.git
-cd transfer-forest
+git clone https://github.com/JeanBrdt/transfer-learning.git
+cd transfer-learning
 pip install -e .
 ```
 
-L'option `-e` installe le package en mode éditable : les modifications du code sont prises en compte sans réinstaller.
-
-Python 3.10 ou plus est requis. Pour faire tourner les notebooks (graphiques, Jupyter) ou les tests, ajouter les options correspondantes :
+L'option `-e` installe le package en mode éditable : les modifications du code sont prises en compte sans réinstaller. Python 3.10 ou plus est requis. Pour les notebooks ou les tests, ajouter les options correspondantes :
 
 ```bash
 pip install -e ".[notebooks]"   # jupyter
@@ -21,38 +27,32 @@ pip install -e ".[dev]"         # pytest
 
 ### Dans un notebook (Colab, Jupyter)
 
-Le package n'est pas sur PyPI, il faut donc l'installer dans l'environnement du notebook avant le moindre import. Le dépôt est **privé** : `git clone` a besoin d'un jeton d'accès en lecture, qu'on ne peut pas saisir dans Colab.
+Le package n'est pas sur PyPI : il faut l'installer dans l'environnement du notebook avant le moindre import.
 
-**Une fois par personne : créer un jeton.** Sur GitLab : avatar > Preferences > Access tokens, créer un jeton avec la seule case `read_repository`, et le copier tout de suite (il ne s'affiche qu'une fois). Ou utiliser le jeton d'équipe (« Deploy token », lecture seule) communiqué par le propriétaire du dépôt.
+```python
+!git clone https://github.com/JeanBrdt/transfer-learning.git
+%cd transfer-learning
+!pip install -e ".[notebooks]"
+```
 
-**Première cellule du notebook :**
+Si le dépôt est privé, `git clone` a besoin d'un jeton d'accès (GitHub : Settings > Developer settings > Personal access tokens, droit `repo` en lecture) :
 
 ```python
 from getpass import getpass
-token = getpass("Jeton GitLab : ")   # le jeton se colle dans la case qui s'ouvre
-!git clone https://oauth2:{token}@gitlab.imt-atlantique.fr/c25trand/transfer-forest.git
-%cd transfer-forest
+token = getpass("Jeton GitHub : ")   # se colle dans la case qui s'ouvre
+!git clone https://{token}@github.com/JeanBrdt/transfer-learning.git
+%cd transfer-learning
 !pip install -e ".[notebooks]"
 ```
 
-Ne jamais écrire le jeton dans une cellule, dans un fichier ni dans un commit, et ne pas partager un notebook qui le contient.
-
-Sur Colab, redémarrer la session après l'installation (Exécution > Redémarrer la session), puis relancer les cellules.
-
-**Sans GitLab (si le serveur n'est pas joignable hors du réseau de l'école).** Compresser le dossier `transfer-forest` en `transfer-forest.zip` sur son ordinateur, l'envoyer dans Colab (icône de dossier à gauche, puis bouton d'envoi), puis :
-
-```python
-!unzip -q transfer-forest.zip
-%cd transfer-forest
-!pip install -e ".[notebooks]"
-```
+Ne jamais écrire le jeton dans une cellule, dans un fichier ni dans un commit, et ne pas partager un notebook qui le contient. Sur Colab, redémarrer la session après l'installation (Exécution > Redémarrer la session), puis relancer les cellules.
 
 ## Lancer l'expérience
 
 Depuis la racine du dépôt :
 
 ```bash
-python -m transfer_forest.run S1        # ou S5
+python -m transfer_forest.run S1        # ou S5, S6
 ```
 
 Le moteur (`transfer_forest/run.py`) fait tout, de bout en bout : découpage test / réserve,
@@ -88,17 +88,18 @@ Les méthodes disponibles sont dans `METHODS` : les références sans transfert 
 `Union`, `Oracle`), le transfert par repondération `Union-P` et les méthodes de Segev et al.
 (`Relab`, `SER`, `STRUT`, `MIX`, `SER*`, `STRUT*`).
 
-Scénarios disponibles : `S1` (Letter) et `S6` (HHAR).
+Scénarios disponibles : `S1` (Letter), `S5` (C-MAPSS) et `S6` (HHAR), décrits plus bas.
 
 Les notebooks d'expériences sont dans `notebooks/` :
 - `experience_s5.ipynb` : le scénario S5 (C-MAPSS) et l'interprétation de ses résultats ;
+- `experience_s6.ipynb` : le scénario S6 (HHAR) : décalage, résultats, coût et bilan ;
 - `experience_references_s1.ipynb` : les références sans transfert sur S1 ;
 - `experience_transfert_s1.ipynb` : toutes les méthodes de `METHODS` face aux références sur S1. Les résultats sont enregistrés dans `results/s1_transfert.csv` : en relançant, seules les combinaisons manquantes sont calculées.
 
 ## Structure du dépôt
 
 ```
-transfer-forest/
+transfer-learning/
 ├── data/             # données des scénarios
 ├── notebooks/        # notebooks d'expériences
 ├── results/          # résultats du moteur et des notebooks (ignoré par git, créé au besoin)
@@ -209,8 +210,14 @@ python -m pytest tests -q
 
 ## Problèmes fréquents
 
-**`fatal: could not read Username for 'https://gitlab...'`** (dans Colab)
-Le dépôt est privé et le clone s'est fait sans jeton. Suivre la procédure du jeton d'accès dans « Dans un notebook (Colab, Jupyter) ». Les erreurs `No such file or directory: 'transfer-forest'` et `does not appear to be a Python project` qui suivent viennent de ce clone raté.
+**`fatal: could not read Username for 'https://github.com'`** (dans Colab)
+Le dépôt est privé et le clone s'est fait sans jeton. Suivre la procédure du jeton d'accès dans « Dans un notebook (Colab, Jupyter) ». Les erreurs `No such file or directory: 'transfer-learning'` et `does not appear to be a Python project` qui suivent viennent de ce clone raté.
 
 **`ModuleNotFoundError: No module named 'transfer_forest'`**
 Le package n'est pas installé dans l'environnement utilisé. Vérifier avec `pip show transfer_forest`, puis relancer `pip install -e .` depuis la racine du dépôt. Dans un notebook, redémarrer le noyau après l'installation.
+
+## Référence
+
+Segev, N., Harel, M., Mannor, S., Crammer, K., El-Yaniv, R. (2017). *Learn on Source, Refine on Target: A Model Transfer Learning Framework with Random Forests.* IEEE Transactions on Pattern Analysis and Machine Intelligence.
+
+Les jeux de données viennent du UCI Machine Learning Repository (Letter Recognition, HHAR) et du NASA Prognostics Data Repository (C-MAPSS).
