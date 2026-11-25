@@ -21,6 +21,10 @@ Choix d'implémentation que l'état de l'art laisse ouverts :
       garde la décision source du nœud ; sans effet mesuré : ces nœuds sont presque jamais atteints) ;
     - une feuille atteinte par des exemples cibles prédit leurs proportions de classes ;
       une feuille sans exemple cible prédit la distribution de la source ;
+    - une greffe de SER est construite comme les arbres de la forêt : sqrt(d) variables tirées
+      à chaque coupure (Segev et al. : « log number of features » dans toutes les expériences).
+      Avec toutes les variables, les 50 greffes, apprises sur les mêmes exemples, seraient presque
+      identiques : la forêt perdrait sa diversité (sur S5, SER passait sous Tgt à grand budget) ;
     - élagage de SER quand LErr(v) <= STErr(v) (égalité comprise, algorithme 3 de l'état de l'art).
       Le pseudo-code de Segev et al. (2017, algorithme 1) écrit < ; or, après l'expansion, chaque
       feuille atteinte par des exemples cibles a 0 erreur sur eux, donc STErr(v) = 0 et la règle
@@ -93,7 +97,7 @@ def _ser(node: _Node, X, y, idx, K: int, seed: int, protected: int | None) -> tu
         if leaf_err > 0:                           # expansion : arbre complet sur les cibles
             with warnings.catch_warnings():        # greffe sur quelques exemples : scikit-learn
                 warnings.simplefilter("ignore")    # croirait à tort à une régression
-                graft = DecisionTreeClassifier(random_state=seed).fit(X[idx], y[idx])
+                graft = DecisionTreeClassifier(max_features="sqrt", random_state=seed).fit(X[idx], y[idx])
             sub = _clone(graft.tree_, graft.classes_.astype(int), K)
             node.feature, node.threshold = sub.feature, sub.threshold
             node.left, node.right, node.proba = sub.left, sub.right, sub.proba
